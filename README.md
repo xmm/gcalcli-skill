@@ -32,7 +32,7 @@ Install this skill in Codex:
 $skill-installer install https://github.com/xmm/gcalcli-skill
 ```
 
-Official project: https://github.com/insanum/gcalcli
+Official gcalcli project: https://github.com/insanum/gcalcli
 
 Install with Homebrew:
 

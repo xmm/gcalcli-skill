@@ -25,6 +25,8 @@ User-facing setup and usage notes: see `README.md`.
   - `gcalcli --calendar "CALENDAR_NAME" agenda ...`
 - For write operations, always pass global `--calendar` explicitly (for example `"CALENDAR_NAME"`).
 - `--details` must be repeated (`--details id --details title`), not comma-separated.
+- Available event-output fields for `--details` (canonical order):
+  - `id,time,url,conference,title,location,description,calendar,email,action,length,reminders,attendees,attachments,end,all`
 
 ## Avoid By Default
 
@@ -73,7 +75,6 @@ gcalcli --nocolor --calendar "CALENDAR_NAME" search \
   --details id \
   --details time \
   --details title \
-  --details calendar \
   "sync" "today" "30 days"
 ```
 
@@ -86,7 +87,6 @@ gcalcli --nocolor --calendar "CALENDAR_NAME" quick \
   --details id \
   --details time \
   --details title \
-  --details calendar \
   "Skill test event tomorrow 10am"
 ```
 
@@ -101,8 +101,7 @@ gcalcli --nocolor --calendar "CALENDAR_NAME" add \
   --noprompt \
   --details id \
   --details time \
-  --details title \
-  --details calendar
+  --details title
 ```
 
 ### Create Event (with reminders)
@@ -117,9 +116,7 @@ gcalcli --nocolor --calendar "CALENDAR_NAME" add \
   --noprompt \
   --details id \
   --details time \
-  --details title \
-  --details reminders \
-  --details calendar
+  --details title
 ```
 
 ### Update Event via TSV (`patch` default action)
