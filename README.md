@@ -26,6 +26,12 @@ Example prompts:
 
 ## Source and Install
 
+Install this skill in Codex:
+
+```bash
+$skill-installer install https://github.com/xmm/gcalcli-skill
+```
+
 Official project: https://github.com/insanum/gcalcli
 
 Install with Homebrew:
