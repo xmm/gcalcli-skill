@@ -1,0 +1,272 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  cat <<'EOF'
+Usage:
+  scripts/gcalcli-update --calendar "CALENDAR_NAME" [gcalcli global options] \
+    [--event-id EVENT_ID] [--action patch|insert|delete|ignore] \
+    [--start-date YYYY-MM-DD] [--start-time HH:MM] \
+    [--end-date YYYY-MM-DD] [--end-time HH:MM] \
+    [--title TEXT] [--location TEXT] [--description TEXT] \
+    [--set FIELD=VALUE ...] [--from-stdin] [-- agendaupdate options]
+
+Description:
+  Wrapper around `gcalcli agendaupdate` with a stable command prefix.
+  It always adds `--nocolor` internally.
+
+Modes:
+  1) Inline flags mode (preferred for automations, no external stdin payload):
+     scripts/gcalcli-update --calendar "CALENDAR_NAME" \
+       --event-id "EVENT_ID" \
+       --start-date 2026-03-12 --start-time 11:30 \
+       --end-date 2026-03-12 --end-time 12:00
+
+  2) TSV passthrough mode (explicit opt-in):
+     cat changes.tsv | scripts/gcalcli-update --calendar "CALENDAR_NAME" --from-stdin
+EOF
+}
+
+add_field() {
+  local field_name="$1"
+  local field_value="$2"
+  local existing
+
+  if [[ -z "$field_name" ]]; then
+    echo "Error: field name cannot be empty." >&2
+    exit 2
+  fi
+
+  if [[ "$field_name" == "id" || "$field_name" == "action" ]]; then
+    echo "Error: use --event-id or --action instead of --set ${field_name}=..." >&2
+    exit 2
+  fi
+
+  for existing in "${field_names[@]-}"; do
+    if [[ "$existing" == "$field_name" ]]; then
+      echo "Error: duplicate field '${field_name}'." >&2
+      exit 2
+    fi
+  done
+
+  if [[ "$field_value" == *$'\t'* || "$field_value" == *$'\n'* ]]; then
+    echo "Error: field '${field_name}' contains tab/newline, TSV would break." >&2
+    exit 2
+  fi
+
+  field_names+=("$field_name")
+  field_values+=("$field_value")
+  field_count=$((field_count + 1))
+}
+
+run_agendaupdate() {
+  if [[ $subcommand_count -gt 0 ]]; then
+    gcalcli --nocolor "${gcal_args[@]}" agendaupdate "${subcommand_args[@]}"
+  else
+    gcalcli --nocolor "${gcal_args[@]}" agendaupdate
+  fi
+}
+
+if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
+  usage
+  exit 0
+fi
+
+if [[ $# -eq 0 ]]; then
+  usage >&2
+  exit 2
+fi
+
+gcal_args=()
+subcommand_args=()
+field_names=()
+field_values=()
+field_count=0
+in_subcommand_args=0
+subcommand_count=0
+event_id=""
+action="patch"
+from_stdin=0
+
+while [[ $# -gt 0 ]]; do
+  if [[ "$1" == "--" && $in_subcommand_args -eq 0 ]]; then
+    in_subcommand_args=1
+    shift
+    continue
+  fi
+
+  if [[ $in_subcommand_args -eq 1 ]]; then
+    subcommand_args+=("$1")
+    subcommand_count=$((subcommand_count + 1))
+    shift
+    continue
+  fi
+
+  case "$1" in
+    --event-id)
+      if [[ $# -lt 2 ]]; then
+        echo "Error: --event-id requires a value." >&2
+        exit 2
+      fi
+      event_id="$2"
+      shift 2
+      ;;
+    --action)
+      if [[ $# -lt 2 ]]; then
+        echo "Error: --action requires a value." >&2
+        exit 2
+      fi
+      action="$2"
+      shift 2
+      ;;
+    --set)
+      if [[ $# -lt 2 ]]; then
+        echo "Error: --set requires FIELD=VALUE." >&2
+        exit 2
+      fi
+      if [[ "$2" != *=* ]]; then
+        echo "Error: --set value must be FIELD=VALUE, got '$2'." >&2
+        exit 2
+      fi
+      add_field "${2%%=*}" "${2#*=}"
+      shift 2
+      ;;
+    --start-date)
+      if [[ $# -lt 2 ]]; then
+        echo "Error: --start-date requires a value." >&2
+        exit 2
+      fi
+      add_field "start_date" "$2"
+      shift 2
+      ;;
+    --start-time)
+      if [[ $# -lt 2 ]]; then
+        echo "Error: --start-time requires a value." >&2
+        exit 2
+      fi
+      add_field "start_time" "$2"
+      shift 2
+      ;;
+    --end-date)
+      if [[ $# -lt 2 ]]; then
+        echo "Error: --end-date requires a value." >&2
+        exit 2
+      fi
+      add_field "end_date" "$2"
+      shift 2
+      ;;
+    --end-time)
+      if [[ $# -lt 2 ]]; then
+        echo "Error: --end-time requires a value." >&2
+        exit 2
+      fi
+      add_field "end_time" "$2"
+      shift 2
+      ;;
+    --title)
+      if [[ $# -lt 2 ]]; then
+        echo "Error: --title requires a value." >&2
+        exit 2
+      fi
+      add_field "title" "$2"
+      shift 2
+      ;;
+    --location)
+      if [[ $# -lt 2 ]]; then
+        echo "Error: --location requires a value." >&2
+        exit 2
+      fi
+      add_field "location" "$2"
+      shift 2
+      ;;
+    --description)
+      if [[ $# -lt 2 ]]; then
+        echo "Error: --description requires a value." >&2
+        exit 2
+      fi
+      add_field "description" "$2"
+      shift 2
+      ;;
+    --from-stdin)
+      from_stdin=1
+      shift
+      ;;
+    *)
+      gcal_args+=("$1")
+      shift
+      ;;
+  esac
+done
+
+has_calendar=0
+for arg in "${gcal_args[@]}"; do
+  if [[ "$arg" == "--calendar" || "$arg" == --calendar=* ]]; then
+    has_calendar=1
+    break
+  fi
+done
+
+if [[ $has_calendar -eq 0 ]]; then
+  echo "Error: --calendar is required." >&2
+  usage >&2
+  exit 2
+fi
+
+case "$action" in
+  patch|insert|delete|ignore) ;;
+  *)
+    echo "Error: unsupported --action '$action' (use patch|insert|delete|ignore)." >&2
+    exit 2
+    ;;
+esac
+
+if [[ "$event_id" == *$'\t'* || "$event_id" == *$'\n'* ]]; then
+  echo "Error: --event-id contains tab/newline, TSV would break." >&2
+  exit 2
+fi
+
+inline_mode=0
+if [[ -n "$event_id" || $field_count -gt 0 || "$action" != "patch" ]]; then
+  inline_mode=1
+fi
+
+if [[ $inline_mode -eq 1 && $from_stdin -eq 1 ]]; then
+  echo "Error: --from-stdin cannot be combined with inline update flags." >&2
+  exit 2
+fi
+
+if [[ $inline_mode -eq 1 ]]; then
+  if [[ -z "$event_id" && "$action" != "insert" && "$action" != "ignore" ]]; then
+    echo "Error: --event-id is required for action '$action' in inline mode." >&2
+    exit 2
+  fi
+
+  {
+    printf 'action'
+    if [[ -n "$event_id" ]]; then
+      printf '\tid'
+    fi
+    for field_name in "${field_names[@]-}"; do
+      printf '\t%s' "$field_name"
+    done
+    printf '\n'
+
+    printf '%s' "$action"
+    if [[ -n "$event_id" ]]; then
+      printf '\t%s' "$event_id"
+    fi
+    for field_value in "${field_values[@]-}"; do
+      printf '\t%s' "$field_value"
+    done
+    printf '\n'
+  } | run_agendaupdate
+  exit $?
+fi
+
+if [[ $from_stdin -eq 0 ]]; then
+  echo "Error: no inline update fields provided. Use --event-id/--set/... (preferred) or add --from-stdin." >&2
+  usage >&2
+  exit 2
+fi
+
+run_agendaupdate

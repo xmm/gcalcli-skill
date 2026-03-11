@@ -29,7 +29,7 @@ Example prompts:
 Install this skill in Codex:
 
 ```bash
-$skill-installer install https://github.com/xmm/gcalcli-skill
+$skill-installer install https://github.com/xmm/google-calendar
 ```
 
 Official gcalcli project: https://github.com/insanum/gcalcli

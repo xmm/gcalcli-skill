@@ -5,7 +5,7 @@ description: Manage a personal Google Calendar via gcalcli. Use when tasks invol
 
 # gcalcli Skill
 
-Prerequisites: `gcalcli` and `awk` in `PATH`, and OAuth initialized via `gcalcli init`.
+Prerequisites: `gcalcli` and `awk` in `PATH`, wrapper scripts at `scripts/gcalcli-update` and `scripts/gcalcli-delete`, and OAuth initialized via `gcalcli init`.
 
 User-facing setup and usage notes: see `README.md`.
 
@@ -17,7 +17,15 @@ User-facing setup and usage notes: see `README.md`.
 
 ## Core Rules
 
-- Use `gcalcli` command name.
+- Use `gcalcli` for read/search/create operations.
+- Use stable wrappers for update/delete operations:
+  - `scripts/gcalcli-update --calendar "CALENDAR_NAME" ...`
+  - `scripts/gcalcli-delete --calendar "CALENDAR_NAME" ...`
+- These wrappers keep a stable command prefix for Codex allow-rules.
+- `scripts/gcalcli-update` and `scripts/gcalcli-delete` always add `--nocolor` internally.
+- Prefer wrapper inline-flags mode for mutations (no external stdin payload).
+- TSV passthrough for wrappers is opt-in via `--from-stdin`.
+- If you need `agendaupdate`-specific options, pass them after `--`.
 - Prefer non-interactive commands.
 - Prefer simple output: use `--tsv` and global `--nocolor` where supported.
 - Always pass global flags before subcommands:
@@ -119,24 +127,37 @@ gcalcli --nocolor --calendar "CALENDAR_NAME" add \
   --details title
 ```
 
-### Update Event via TSV (`patch` default action)
+### Update Event Start Time (preferred, no stdin payload)
 
 ```bash
-gcalcli --nocolor --calendar "CALENDAR_NAME" agenda \
-  --tsv \
-  --details id \
-  --details time \
-  --details title \
-  "today" "2 days" \
-| awk 'BEGIN{FS=OFS="\t"} NR==1{for(i=1;i<=NF;i++) if($i=="title") t=i; print; next} {if(t) $t=$t" [UPDATED]"; print}' \
-| gcalcli --calendar "CALENDAR_NAME" agendaupdate
+scripts/gcalcli-update --calendar "CALENDAR_NAME" \
+  --event-id "EVENT_ID" \
+  --start-date "2026-03-12" \
+  --start-time "11:30" \
+  --end-date "2026-03-12" \
+  --end-time "12:00"
 ```
 
-### Delete Event via TSV (non-interactive)
+### Update Event with arbitrary fields (preferred, no stdin payload)
+
+```bash
+scripts/gcalcli-update --calendar "CALENDAR_NAME" \
+  --event-id "EVENT_ID" \
+  --set title="Updated title" \
+  --set location="Room 301"
+```
+
+### Delete Event by ID (non-interactive, preferred)
+
+```bash
+scripts/gcalcli-delete --calendar "CALENDAR_NAME" --event-id "EVENT_ID"
+```
+
+### Delete Event via TSV (bulk optional)
 
 ```bash
 printf 'action\tid\ndelete\tEVENT_ID\n' \
-| gcalcli --calendar "CALENDAR_NAME" agendaupdate
+| scripts/gcalcli-delete --calendar "CALENDAR_NAME" --from-stdin
 ```
 
 ### Import Preview Without Writing
@@ -160,9 +181,12 @@ ICS
 
 - `agenda` shows all events in a time window.
 - `search` filters events by text query (`text`) in a time window.
-- `agendaupdate` requires exactly one calendar via global `--calendar`.
+- `scripts/gcalcli-update` and `scripts/gcalcli-delete` wrap `gcalcli --nocolor ... agendaupdate`.
+- For `scripts/gcalcli-update`/`scripts/gcalcli-delete`, pass exactly one calendar via global `--calendar`.
+- Prefer inline flags mode for wrappers to avoid external stdin payloads.
+- Use `--from-stdin` only when intentionally applying TSV input.
 - `import` can read ICS from `stdin` (no file argument needed).
 - For reliable patch/delete through TSV, include the `id` column.
-- Prefer pipe for generated TSV payloads (fewer temp files, simpler automation).
+- TSV piping is optional and useful mainly for bulk edits.
 - Keep a temp file only when a human needs to manually inspect/edit TSV before apply.
 - Always verify mutations with `gcalcli --nocolor --calendar "CALENDAR_NAME" search ... --tsv`.

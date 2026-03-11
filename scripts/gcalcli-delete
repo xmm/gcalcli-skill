@@ -1,0 +1,116 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  cat <<'EOF'
+Usage:
+  scripts/gcalcli-delete --calendar "CALENDAR_NAME" [gcalcli global options] [--event-id EVENT_ID ...] [--from-stdin] [-- agendaupdate options]
+
+Description:
+  Wrapper around `gcalcli agendaupdate` for delete operations with a stable command prefix.
+  It always adds `--nocolor` internally.
+
+Modes:
+  1) Generate delete TSV inside wrapper (preferred for automations):
+     scripts/gcalcli-delete --calendar "CALENDAR_NAME" --event-id EVENT_ID [--event-id EVENT_ID2 ...]
+
+  2) Pipe TSV payload via stdin (explicit opt-in):
+     printf 'action\tid\ndelete\tEVENT_ID\n' | scripts/gcalcli-delete --calendar "CALENDAR_NAME" --from-stdin
+EOF
+}
+
+run_agendaupdate() {
+  if [[ $subcommand_count -gt 0 ]]; then
+    gcalcli --nocolor "${gcal_args[@]}" agendaupdate "${subcommand_args[@]}"
+  else
+    gcalcli --nocolor "${gcal_args[@]}" agendaupdate
+  fi
+}
+
+if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
+  usage
+  exit 0
+fi
+
+if [[ $# -eq 0 ]]; then
+  usage >&2
+  exit 2
+fi
+
+gcal_args=()
+event_ids=()
+subcommand_args=()
+in_subcommand_args=0
+event_count=0
+subcommand_count=0
+from_stdin=0
+
+while [[ $# -gt 0 ]]; do
+  if [[ "$1" == "--" && $in_subcommand_args -eq 0 ]]; then
+    in_subcommand_args=1
+    shift
+    continue
+  fi
+  if [[ $in_subcommand_args -eq 1 ]]; then
+    subcommand_args+=("$1")
+    subcommand_count=$((subcommand_count + 1))
+    shift
+    continue
+  fi
+  case "$1" in
+    --event-id)
+      if [[ $# -lt 2 ]]; then
+        echo "Error: --event-id requires a value." >&2
+        exit 2
+      fi
+      event_ids+=("$2")
+      event_count=$((event_count + 1))
+      shift 2
+      ;;
+    --from-stdin)
+      from_stdin=1
+      shift
+      ;;
+    *)
+      gcal_args+=("$1")
+      shift
+      ;;
+  esac
+done
+
+has_calendar=0
+for arg in "${gcal_args[@]}"; do
+  if [[ "$arg" == "--calendar" || "$arg" == --calendar=* ]]; then
+    has_calendar=1
+    break
+  fi
+done
+
+if [[ $has_calendar -eq 0 ]]; then
+  echo "Error: --calendar is required." >&2
+  usage >&2
+  exit 2
+fi
+
+if [[ $event_count -gt 0 && $from_stdin -eq 1 ]]; then
+  echo "Error: --from-stdin cannot be combined with --event-id." >&2
+  exit 2
+fi
+
+if [[ $event_count -gt 0 ]]; then
+  {
+    printf 'action\tid\n'
+    for event_id in "${event_ids[@]-}"; do
+      printf 'delete\t%s\n' "$event_id"
+    done
+  } | run_agendaupdate
+  exit $?
+fi
+
+if [[ $from_stdin -eq 0 ]]; then
+  echo "Error: no --event-id provided. Use --event-id (preferred) or add --from-stdin." >&2
+  usage >&2
+  exit 2
+fi
+
+run_agendaupdate
